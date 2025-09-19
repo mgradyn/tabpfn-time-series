@@ -2,7 +2,11 @@ import logging
 from enum import Enum
 
 from tabpfn_time_series.ts_dataframe import TimeSeriesDataFrame
-from tabpfn_time_series.tabpfn_worker import TabPFNClient, LocalTabPFN, MockTabPFN
+from tabpfn_time_series.tabpfn_worker import (
+    TabPFNClient,
+    LocalTabPFN,
+    MockTabPFN,
+)
 from tabpfn_time_series.defaults import TABPFN_TS_DEFAULT_CONFIG
 
 logger = logging.getLogger(__name__)
@@ -29,6 +33,7 @@ class TabPFNTimeSeriesPredictor:
             TabPFNMode.LOCAL: lambda: LocalTabPFN(config),
             TabPFNMode.MOCK: lambda: MockTabPFN(config),
         }
+        self.tabpfn_mode = tabpfn_mode
         self.tabpfn_worker = worker_mapping[tabpfn_mode]()
 
     def predict(

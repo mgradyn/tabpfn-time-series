@@ -1,6 +1,8 @@
+import contextvars
 import logging
 from abc import ABC, abstractmethod
-from joblib import Parallel, delayed
+from joblib import Parallel, delayed, parallel_config
+import backoff
 
 from tqdm import tqdm
 import pandas as pd
@@ -13,6 +15,9 @@ from tabpfn_time_series.data_preparation import split_time_series_to_X_y
 from tabpfn_time_series.defaults import TABPFN_TS_DEFAULT_QUANTILE_CONFIG
 
 logger = logging.getLogger(__name__)
+
+# Per-call attempt counter, isolated per thread & task
+_retry_attempts = contextvars.ContextVar("predict_attempts", default=0)
 
 
 class TabPFNWorker(ABC):
@@ -29,24 +34,7 @@ class TabPFNWorker(ABC):
         train_tsdf: TimeSeriesDataFrame,
         test_tsdf: TimeSeriesDataFrame,
     ):
-        predictions = Parallel(
-            n_jobs=self.num_workers,
-            backend="loky",
-        )(
-            delayed(self._prediction_routine)(
-                item_id,
-                train_tsdf.loc[item_id],
-                test_tsdf.loc[item_id],
-            )
-            for item_id in tqdm(train_tsdf.item_ids, desc="Predicting time series")
-        )
-
-        predictions = pd.concat(predictions)
-
-        # Sort predictions according to original item_ids order (important for MASE and WQL calculation)
-        predictions = predictions.loc[train_tsdf.item_ids]
-
-        return TimeSeriesDataFrame(predictions)
+        raise NotImplementedError("Predict method must be implemented in subclass")
 
     def _prediction_routine(
         self,
@@ -54,8 +42,6 @@ class TabPFNWorker(ABC):
         single_train_tsdf: TimeSeriesDataFrame,
         single_test_tsdf: TimeSeriesDataFrame,
     ) -> pd.DataFrame:
-        # logger.debug(f"Predicting on item_id: {item_id}")
-
         test_index = single_test_tsdf.index
         train_X, train_y = split_time_series_to_X_y(single_train_tsdf.copy())
         test_X, _ = split_time_series_to_X_y(single_test_tsdf.copy())
@@ -116,6 +102,39 @@ class TabPFNWorker(ABC):
         return result
 
 
+def _reset_attempts(_details=None):
+    """Convenience function to reset the attempt counter."""
+    _retry_attempts.set(0)
+
+
+def _predict_giveup_mixed(exc: Exception) -> bool:
+    """Determine whether to give up on a prediction call or not.
+
+    Returns:
+        True if the prediction call should be given up on, False otherwise.
+    """
+    if _is_tabpfn_gcs_429(exc):
+        return False
+
+    # Stop after first retry for non-429
+    return _retry_attempts.get() >= 2
+
+
+def _is_tabpfn_gcs_429(err: Exception) -> bool:
+    """Determine if an error is a 429 error raised from TabPFN API
+    and relates to GCS 429 errors.
+
+    Returns:
+        True if the error is a 429 error raised from TabPFN API.
+    """
+    markers = (
+        "TooManyRequests: 429",
+        "rateLimitExceeded",
+        "cloud.google.com/storage/docs/gcs429",
+    )
+    return any(m in str(err) for m in markers)
+
+
 class TabPFNClient(TabPFNWorker):
     def __init__(
         self,
@@ -134,6 +153,53 @@ class TabPFNClient(TabPFNWorker):
         )
 
         super().__init__(config, num_workers)
+
+    def predict(
+        self,
+        train_tsdf: TimeSeriesDataFrame,
+        test_tsdf: TimeSeriesDataFrame,
+    ):
+        # Run the predictions in parallel
+        with parallel_config(backend="threading"):
+            results = Parallel(
+                n_jobs=self.num_workers,
+            )(
+                delayed(self._prediction_routine)(
+                    item_id,
+                    train_tsdf.loc[item_id],
+                    test_tsdf.loc[item_id],
+                )
+                for item_id in tqdm(train_tsdf.item_ids, desc="Predicting time series")
+            )
+
+        # Convert list to DataFrame
+        predictions = pd.concat(results)
+
+        # Sort predictions according to original item_ids order (important for MASE and WQL calculation)
+        predictions = predictions.loc[train_tsdf.item_ids]
+
+        return TimeSeriesDataFrame(predictions)
+
+    @backoff.on_exception(
+        backoff.expo,
+        Exception,
+        base=1,
+        factor=2,
+        max_tries=5,
+        jitter=backoff.full_jitter,
+        giveup=_predict_giveup_mixed,
+        on_success=_reset_attempts,
+    )
+    def _prediction_routine(
+        self,
+        item_id: str,
+        single_train_tsdf: TimeSeriesDataFrame,
+        single_test_tsdf: TimeSeriesDataFrame,
+    ) -> pd.DataFrame:
+        # Increment attempt count at start of each try
+        _retry_attempts.set(_retry_attempts.get() + 1)
+
+        return super()._prediction_routine(item_id, single_train_tsdf, single_test_tsdf)
 
     def _get_tabpfn_engine(self):
         from tabpfn_client import TabPFNRegressor
