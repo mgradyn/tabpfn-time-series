@@ -262,8 +262,8 @@ def main(args):
         tabpfn_predictor = TabPFNTSPredictor(
             ds_prediction_length=sub_dataset.prediction_length,
             ds_freq=sub_dataset.freq,
-            # tabpfn_mode=TabPFNMode.LOCAL,
-            tabpfn_mode=TabPFNMode.CLIENT,
+            tabpfn_mode=TabPFNMode.LOCAL,
+            # tabpfn_mode=TabPFNMode.CLIENT,
             context_length=4096,
             debug=args.debug,
         )
