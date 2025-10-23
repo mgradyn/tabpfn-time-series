@@ -265,6 +265,7 @@ def main(args):
             tabpfn_mode=TabPFNMode.LOCAL,
             # tabpfn_mode=TabPFNMode.CLIENT,
             context_length=4096,
+            batch_size=args.batch_size, 
             debug=args.debug,
         )
 
@@ -313,6 +314,8 @@ if __name__ == "__main__":
         "--dataset_storage_path", type=str, default=str(Path(__file__).parent / "data")
     )
     parser.add_argument("--debug", action="store_true")
+
+    parser.add_argument("--batch_size", type=int, default=1024, help="Batch size for TabPFN predictor predictions")
 
     # Wandb settings
     parser.add_argument("--wandb_project", type=str, default="tabpfn-ts-experiments")
