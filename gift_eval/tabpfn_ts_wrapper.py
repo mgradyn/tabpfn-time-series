@@ -1,3 +1,4 @@
+# Modified: add batch_size parameter to TabPFNTSPredictor and use it in predict
 from typing import Iterator, Tuple
 import logging
 
@@ -36,6 +37,7 @@ class TabPFNTSPredictor:
         ds_freq: str,
         tabpfn_mode: TabPFNMode = TabPFNMode.CLIENT,
         context_length: int = 4096,
+        batch_size: int = 1024,   # NEW: configurable batch size
         debug: bool = False,
     ):
         self.ds_prediction_length = ds_prediction_length
@@ -44,6 +46,7 @@ class TabPFNTSPredictor:
             tabpfn_mode=tabpfn_mode,
         )
         self.context_length = context_length
+        self.batch_size = batch_size
         self.debug = debug
 
         self.feature_transformer = FeatureTransformer(self.DEFAULT_FEATURES)
@@ -52,7 +55,8 @@ class TabPFNTSPredictor:
         logger.debug(f"len(test_data_input): {len(test_data_input)}")
 
         forecasts = []
-        for batch in batcher(test_data_input, batch_size=1024):
+        # Use configured batch_size
+        for batch in batcher(test_data_input, batch_size=self.batch_size):
             forecasts.extend(self._predict_batch(batch))
 
         return forecasts
