@@ -37,7 +37,7 @@ class TabPFNTSPredictor:
         ds_freq: str,
         tabpfn_mode: TabPFNMode = TabPFNMode.CLIENT,
         context_length: int = 4096,
-        batch_size: int = 1024,   # NEW: configurable batch size
+        batch_size: int = 2048,   # NEW: configurable batch size
         debug: bool = False,
     ):
         self.ds_prediction_length = ds_prediction_length
