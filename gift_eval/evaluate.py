@@ -315,7 +315,7 @@ if __name__ == "__main__":
     )
     parser.add_argument("--debug", action="store_true")
 
-    parser.add_argument("--batch_size", type=int, default=1024, help="Batch size for TabPFN predictor predictions")
+    parser.add_argument("--batch_size", type=int, default=2048, help="Batch size for TabPFN predictor predictions")
 
     # Wandb settings
     parser.add_argument("--wandb_project", type=str, default="tabpfn-ts-experiments")
